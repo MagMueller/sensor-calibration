@@ -36,7 +36,7 @@ Eine professionelle Web-Anwendung für die Kalibrierung von Messtechnik-Geräten
 ```bash
 # Repository klonen
 git clone [repository-url]
-cd papa-app
+cd sensor-calibration
 
 # Abhängigkeiten installieren
 npm install
