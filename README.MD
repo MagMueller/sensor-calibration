@@ -1,4 +1,4 @@
-# Papa Kalibrierungs-App
+# Kalibrierungs-App
 
 Eine professionelle Web-Anwendung für die Kalibrierung von Messtechnik-Geräten. Die App ermöglicht die systematische Kalibrierung von Sensoren, Verstärkern und Referenzsensoren mit automatischer Berechnung der Gesamtmessungenauigkeit.
 
