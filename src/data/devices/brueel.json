@@ -1,0 +1,82 @@
+{
+    "manufacturer": "HBK (Hottinger Brüel & Kjær)",
+    "datasheet": "K3607 Calibration Unit – B00333 (10/2023)",
+    "models": [
+        "K3607"
+    ],
+    "device_type": "Reference calibration unit for strain-gauge bridges",
+    "calibration_signals": {
+        "range_steps_mV_per_V": [
+            0.5,
+            1,
+            2,
+            5,
+            10
+        ],
+        "percentage_steps_percent": [
+            0,
+            10,
+            20,
+            30,
+            40,
+            50,
+            60,
+            70,
+            80,
+            90,
+            100
+        ],
+        "overall_span_mV_per_V": [
+            0.05,
+            10
+        ]
+    },
+    "accuracy": {
+        "accuracy_class": 0.025,
+        "range_step_error_percent_fs": 0.025,
+        "percentage_step_error_percent": 0.025,
+        "absolute_zero_error_mV_per_V": 0.0005,
+        "non_linearity_percent_fs": 0.010,
+        "temperature_effect_percent_per_10K_service": 0.030,
+        "temperature_effect_percent_per_10K_nominal": 0.010
+    },
+    "excitation_frequency_hz": [
+        0,
+        5000
+    ],
+    "bridge_equivalent": {
+        "resistance_ohms": 350
+    },
+    "supply_voltage_v": {
+        "nominal": 4,
+        "maximum": 18
+    },
+    "environment": {
+        "nominal_temperature_c": [
+            10,
+            50
+        ],
+        "service_temperature_c": [
+            10,
+            60
+        ],
+        "storage_temperature_c": [
+            -25,
+            70
+        ]
+    },
+    "mechanical": {
+        "weight_kg": 1,
+        "dimensions_mm": [
+            200,
+            110,
+            120
+        ]
+    },
+    "features": [
+        "30 selectable calibration signals (0.05 … 10 mV/V)",
+        "Star-circuit zero-point stability",
+        "Works with DC and carrier-frequency excitation up to 5 kHz",
+        "Portable housing, polarity switch for ± output"
+    ]
+}

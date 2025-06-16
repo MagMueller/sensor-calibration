@@ -1,0 +1,110 @@
+{
+  "manufacturer": "Knick",
+  "datasheet": "VariTrans P 27000 (Universal-Trennverstärker)",
+  "models": [
+    "P 27000 H1",
+    "P 27000 F1"
+  ],
+  "device_type": "Signal-Isolator / Verstärker",
+  "input_ranges": {
+    "voltage_V": [
+      0.02,
+      0.06,
+      0.1,
+      0.15,
+      0.3,
+      0.5,
+      1,
+      5,
+      10,
+      100,
+      200
+    ],
+    "current_mA": [
+      0.1,
+      1,
+      5,
+      10,
+      20,
+      50,
+      100
+    ],
+    "special": [
+      "4-20 mA unipolar"
+    ]
+  },
+  "output_ranges": {
+    "current_mA": [
+      "0-20",
+      "4-20",
+      "-20…+20"
+    ],
+    "voltage_V": [
+      "0-5",
+      "1-5",
+      "0-10",
+      "2-10",
+      "-10…+10"
+    ]
+  },
+  "accuracy": {
+    "gain_error_percent": 0.08,
+    "temperature_coefficient_percent_per_K": 0.005,
+    "offset_current_uA": 20,
+    "offset_voltage_mV": 10,
+    "ripple_mV_eff": "<10"
+  },
+  "bandwidth": {
+    "high_cutoff_kHz": 10,
+    "low_cutoff_Hz": 10,
+    "step_response_T90_us": 70
+  },
+  "load_limits": {
+    "current_output": "≤600 Ω @ 20 mA (≤12 V)",
+    "voltage_output": "≤1 kΩ @ 10 V (≤10 mA)"
+  },
+  "supply": {
+    "voltage_range_V_AC_DC": [
+      20,
+      253
+    ],
+    "frequency_Hz_AC": [
+      48,
+      62
+    ],
+    "power_consumption_AC_VA": 2,
+    "power_consumption_DC_W": 0.9
+  },
+  "isolation": {
+    "ports": 3,
+    "test_voltage_kV_AC": {
+      "input_to_output": 5,
+      "output_to_supply": 4
+    },
+    "working_voltage_V": 1000
+  },
+  "environment": {
+    "operating_temperature_C": [
+      -10,
+      70
+    ],
+    "storage_temperature_C": [
+      -40,
+      85
+    ],
+    "relative_humidity_percent": [
+      5,
+      95
+    ],
+    "altitude_m": 2000
+  },
+  "mechanical": {
+    "dimensions_mm": {
+      "width": 12.5,
+      "height": 99,
+      "depth": 111
+    },
+    "weight_g": 150,
+    "mounting": "DIN-Hutschiene 35 mm"
+  }
+}
