@@ -30,11 +30,12 @@ export class DataLoader {
     );
   }
 
-  static getCompatibleReferences(sensor: Sensor, range?: MeasurementRange): ReferenceSensor[] {
+  static getCompatibleReferences(sensor: Sensor, range?: MeasurementRange, referenceUnit?: string): ReferenceSensor[] {
     return references.filter(reference => {
       const directReference = reference.measurand === sensor.measurand;
       const convertedReference = reference.supportedTargetMeasurands?.includes(sensor.measurand) ?? false;
       if (!directReference && !convertedReference) return false;
+      if (referenceUnit && !reference.ranges.some(referenceRange => referenceRange.unit === referenceUnit)) return false;
       if (!range) return true;
       if (convertedReference) return true;
       return reference.ranges.some(referenceRange =>

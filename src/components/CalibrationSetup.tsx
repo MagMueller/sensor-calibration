@@ -25,10 +25,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
   const [distribution, setDistribution] = useState<UncertaintyDistribution>('normal');
   const [sensorAgeYears, setSensorAgeYears] = useState(0);
   const [temperatureDeltaK, setTemperatureDeltaK] = useState(0);
-  const [sensorSerial, setSensorSerial] = useState('');
-  const [referenceSerial, setReferenceSerial] = useState('');
-  const [amplifierSerial, setAmplifierSerial] = useState('');
-  const [daqSerial, setDaqSerial] = useState('');
+  const [equipmentSerials, setEquipmentSerials] = useState<Record<string, string>>({});
   const [technician, setTechnician] = useState('');
   const [amendmentNote, setAmendmentNote] = useState('');
   const [governanceError, setGovernanceError] = useState('');
@@ -44,6 +41,19 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
   useEffect(() => { setPendingDeletePathId(''); }, [pathId]);
 
   const path = bench?.measurementPaths.find(item => item.id === pathId);
+  const serialFor = (kind: EquipmentSerialKind) => path ? equipmentSerials[equipmentSerialKey(kind, path)] ?? '' : '';
+  const setSerialFor = (kind: EquipmentSerialKind, value: string) => {
+    if (!path) return;
+    setEquipmentSerials(current => ({ ...current, [equipmentSerialKey(kind, path)]: value }));
+  };
+  const sensorSerial = serialFor('sensor');
+  const amplifierSerial = serialFor('amplifier');
+  const referenceSerial = serialFor('reference');
+  const daqSerial = serialFor('daq');
+  const setSensorSerial = (value: string) => setSerialFor('sensor', value);
+  const setAmplifierSerial = (value: string) => setSerialFor('amplifier', value);
+  const setReferenceSerial = (value: string) => setSerialFor('reference', value);
+  const setDaqSerial = (value: string) => setSerialFor('daq', value);
   const pathTemplates = useMemo(() => builtInCatalog.flatMap(item => item.measurementPaths), [builtInCatalog]);
   const selectedBenchPaths = bench?.measurementPaths.filter(item => selectedPathIds.includes(item.id)) ?? [];
   const duplicateDaqChannels = selectedBenchPaths.filter((item, index, all) => all.findIndex(candidate => candidate.dataAcquisitionId === item.dataAcquisitionId && candidate.dataAcquisitionChannel === item.dataAcquisitionChannel) !== index);
@@ -53,12 +63,13 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
   const amplifier = path ? amplifiers.find(item => item.id === path.amplifierId) : undefined;
   const reference = path ? references.find(item => item.id === path.referenceId) : undefined;
   const daq = path ? daqs.find(item => item.id === path.dataAcquisitionId) : undefined;
-  const compatibleReferences = sensor && range ? DataLoader.getCompatibleReferences(sensor, range) : [];
+  const compatibleReferences = sensor && range && path ? DataLoader.getCompatibleReferences(sensor, range, path.conversion.referenceUnit) : [];
 
   const selectBench = useCallback((id: string) => {
     const selected = catalog.find(item => item.id === id);
     const copy = selected ? cloneBench(selected) : undefined;
     setBench(copy); setPathId(copy?.measurementPaths[0]?.id ?? ''); setSelectedPathIds(copy?.measurementPaths.map(item => item.id) ?? []);
+    setAmendmentNote(''); setGovernanceError(''); setPendingDeletePathId(''); setEquipmentSerials({});
   }, [catalog]);
 
   useEffect(() => { if (initialBenchId && !bench) selectBench(initialBenchId); }, [initialBenchId, bench, selectBench]);
@@ -182,7 +193,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
 
   const defaultTargetPoints = sensor && range ? DataLoader.getDefaultMeasurementPoints(sensor, range) : [];
   const activeReferencePoints = path && DataLoader.validateReferenceConversion(path.conversion)
-    ? (path.referencePointValues?.length ? path.referencePointValues : defaultTargetPoints.map(target => DataLoader.targetToReference(target, path.conversion)))
+    ? (path.referencePointValues?.length ? path.referencePointValues : defaultTargetPoints.map(target => roundReferenceValue(DataLoader.targetToReference(target, path.conversion))))
     : [];
 
   const updateReferencePoint = (index: number, value: number) => {
@@ -196,7 +207,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
     if (!path) return;
     const updated = [...activeReferencePoints];
     if (updated.length < 2) updated.push((updated[0] ?? 0) + 1);
-    else updated.splice(updated.length - 1, 0, (updated[updated.length - 2] + updated[updated.length - 1]) / 2);
+    else updated.splice(updated.length - 1, 0, roundReferenceValue((updated[updated.length - 2] + updated[updated.length - 1]) / 2));
     updateCurrentPath({ referencePointValues: updated });
   };
 
@@ -223,10 +234,10 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
 
   const resetReferencePointsForRange = () => {
     if (!path || !range || !DataLoader.validateReferenceConversion(path.conversion)) return;
-    const targets = Array.from({ length: 11 }, (_, index) => range.min + range.span * index / 10);
+    const targets = Array.from({ length: 11 }, (_, index) => roundReferenceValue(range.min + range.span * index / 10));
     updateCurrentPath({
       pointValues: targets,
-      referencePointValues: targets.map(target => DataLoader.targetToReference(target, path.conversion))
+      referencePointValues: targets.map(target => roundReferenceValue(DataLoader.targetToReference(target, path.conversion)))
     });
   };
 
@@ -236,11 +247,12 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
     const selectedAmplifier = amplifiers.find(item => item.id === selectedPath.amplifierId);
     const selectedReference = references.find(item => item.id === selectedPath.referenceId);
     const selectedDaq = daqs.find(item => item.id === selectedPath.dataAcquisitionId);
-    if (!bench || !selectedSensor || !selectedRange || !selectedAmplifier || !selectedReference || !selectedDaq || hasInvalidRangeOverride(selectedPath) || hasInvalidAdditionalUncertainty(selectedPath) || (selectedPath.displayResolution !== undefined && (!Number.isFinite(selectedPath.displayResolution) || selectedPath.displayResolution <= 0)) || (selectedPath.pcGain !== undefined && (!Number.isFinite(selectedPath.pcGain) || Math.abs(selectedPath.pcGain) <= Number.EPSILON)) || (selectedPath.pcOffset !== undefined && !Number.isFinite(selectedPath.pcOffset)) || !DataLoader.validateReferenceConversion(selectedPath.conversion)) return undefined;
+    const referenceMatchesMethod = selectedSensor && selectedRange && DataLoader.getCompatibleReferences(selectedSensor, selectedRange, selectedPath.conversion.referenceUnit).some(item => item.id === selectedPath.referenceId);
+    if (!bench || !selectedSensor || !selectedRange || !selectedAmplifier || !selectedReference || !selectedDaq || !referenceMatchesMethod || hasInvalidRangeOverride(selectedPath) || hasInvalidAdditionalUncertainty(selectedPath) || (selectedPath.displayResolution !== undefined && (!Number.isFinite(selectedPath.displayResolution) || selectedPath.displayResolution <= 0)) || (selectedPath.pcGain !== undefined && (!Number.isFinite(selectedPath.pcGain) || Math.abs(selectedPath.pcGain) <= Number.EPSILON)) || (selectedPath.pcOffset !== undefined && !Number.isFinite(selectedPath.pcOffset)) || !DataLoader.validateReferenceConversion(selectedPath.conversion)) return undefined;
     const targetDefaults = selectedPath.pointValues?.length ? [...selectedPath.pointValues] : DataLoader.getDefaultMeasurementPoints(selectedSensor, selectedRange);
     const referencePoints = selectedPath.referencePointValues?.length
       ? [...selectedPath.referencePointValues]
-      : targetDefaults.map(target => DataLoader.targetToReference(target, selectedPath.conversion));
+      : targetDefaults.map(target => roundReferenceValue(DataLoader.targetToReference(target, selectedPath.conversion)));
     const points = selectedPath.referencePointValues?.length
       ? referencePoints.map(referenceValue => DataLoader.referenceToTarget(referenceValue, selectedPath.conversion))
       : targetDefaults;
@@ -250,7 +262,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
       sensorBmk: selectedPath.sensorBmk, connector: selectedPath.connector, amplifierBmk: selectedPath.amplifierBmk, amplifierChannel: selectedPath.amplifierChannel, dataAcquisitionBmk: selectedPath.dataAcquisitionBmk ?? '—', dataAcquisitionChannel: selectedPath.dataAcquisitionChannel,
       referenceConversion: { ...selectedPath.conversion }, sensor: selectedSensor, amplifier: selectedAmplifier, referenceSensor: selectedReference, dataAcquisition: selectedDaq,
       selectedSensorModel: selectedPath.sensorModel, selectedAmplifierModel: selectedPath.amplifierModel, selectedReferenceModel: selectedPath.referenceModel, selectedDataAcquisitionModel: selectedPath.dataAcquisitionModel,
-      sensorSerial: selectedPath.id === pathId ? sensorSerial : '', amplifierSerial: selectedPath.id === pathId ? amplifierSerial : '', referenceSerial: selectedPath.id === pathId ? referenceSerial : '', dataAcquisitionSerial: selectedPath.id === pathId ? daqSerial : '', selectedRange, measurementPointValues: points, referencePointValues: referencePoints, tolerancePercent: selectedPath.tolerancePercent, displayResolution: selectedPath.displayResolution ?? DataLoader.getDefaultDisplayResolution(selectedRange), pcGain: selectedPath.pcGain ?? 1, pcOffset: selectedPath.pcOffset ?? 0,
+      sensorSerial: equipmentSerials[equipmentSerialKey('sensor', selectedPath)] ?? '', amplifierSerial: equipmentSerials[equipmentSerialKey('amplifier', selectedPath)] ?? '', referenceSerial: equipmentSerials[equipmentSerialKey('reference', selectedPath)] ?? '', dataAcquisitionSerial: equipmentSerials[equipmentSerialKey('daq', selectedPath)] ?? '', selectedRange, measurementPointValues: points, referencePointValues: referencePoints, tolerancePercent: selectedPath.tolerancePercent, displayResolution: selectedPath.displayResolution ?? DataLoader.getDefaultDisplayResolution(selectedRange), pcGain: selectedPath.pcGain ?? 1, pcOffset: selectedPath.pcOffset ?? 0,
       uncertaintyDistribution: distribution, sensorAgeYears, temperatureDeltaK, additionalUncertainties: [...(selectedPath.additionalUncertainties ?? [])], protocolIssue: bench.revision, amendmentNote,
       technician: technician.trim(), templateLocked: Boolean(bench.locked), templateAmendmentHistory: [...(bench.amendmentHistory ?? [])]
     };
@@ -301,7 +313,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
 
     {bench && path && sensor && range && amplifier && reference && daq && <>
       <details className="card-flat">
-        <summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-4"><div><p className="eyebrow">Installation and signal chain</p><h2 className="section-title">Sensor, amplifier, and PC channels</h2><p className="mt-1 text-sm text-slate-500">Open only when the equipment ID, connector, serial number, or channel must be changed.</p></div><span className="status-neutral">Advanced</span></div></summary>
+        <summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-4"><div><p className="eyebrow">03–05 · Installation and signal chain</p><h2 className="section-title">Sensor, amplifier, and PC channels</h2><p className="mt-1 text-sm text-slate-500">Open only when the equipment ID, connector, serial number, or channel must be changed.</p></div><span className="status-neutral">Advanced</span></div></summary>
         <section className="mt-5 grid gap-4 lg:grid-cols-3">
           <DeviceCard index="03" title="Sensor / installation point"><Field label="Measurement path name" value={path.name} disabled={Boolean(bench.locked)} onChange={value => updatePath('name', value)} /><p className="mt-3 text-sm text-slate-500">{sensor.manufacturer} · {path.sensorModel}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Equipment ID" value={path.sensorBmk} disabled={Boolean(bench.locked)} onChange={value => updatePath('sensorBmk', value)} /><Field label="Connector / pins" value={path.connector} disabled={Boolean(bench.locked)} onChange={value => updatePath('connector', value)} /></div><DatabaseSpecs source={sensor.source} items={[['Base accuracy', `±${format(sensor.accuracy.standardSpanPercent)} % FS`], ['Non-linearity', sensor.accuracy.nonlinearitySpanPercentBfsl === undefined ? '—' : `±${format(sensor.accuracy.nonlinearitySpanPercentBfsl)} % FS`], ['Long-term stability', sensor.accuracy.longTermStabilityPercentSpanPerYear === undefined ? '—' : `${format(sensor.accuracy.longTermStabilityPercentSpanPerYear)} % FS/year`]]} /><SerialField label="Sensor serial number" value={sensorSerial} onChange={setSensorSerial} /></DeviceCard>
           <DeviceCard index="04" title="Measurement amplifier"><p className="font-bold">{amplifier.manufacturer} · {path.amplifierModel}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Equipment ID" value={path.amplifierBmk} disabled={Boolean(bench.locked)} onChange={value => updatePath('amplifierBmk', value)} /><Field label="Channel" value={path.amplifierChannel} disabled={Boolean(bench.locked)} onChange={value => updatePath('amplifierChannel', value)} /></div><DatabaseSpecs source={amplifier.source} items={[['Gain error', `±${format(amplifier.accuracy.gainErrorPercent)} %`], ['Temperature coefficient', amplifier.accuracy.temperatureCoefficientPercentPerK === undefined ? '—' : `${format(amplifier.accuracy.temperatureCoefficientPercentPerK)} %/K`]]} /><SerialField label="Amplifier serial number" value={amplifierSerial} onChange={setAmplifierSerial} /></DeviceCard>
@@ -327,7 +339,7 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
           <SerialField label="Reference serial number" value={referenceSerial} onChange={setReferenceSerial} />
       </section>
 
-      <section className="card-flat"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">Reference points</p><h2 className="section-title">{activeReferencePoints.length} values from top to bottom</h2></div><div className="flex flex-wrap gap-2"><button type="button" className="btn-tertiary" disabled={Boolean(bench.locked)} onClick={addReferencePoint}>Add point</button><button type="button" className="btn-tertiary" disabled={Boolean(bench.locked)} onClick={resetReferencePointsForRange}>Load default points</button></div></div><div className="mt-5 hidden grid-cols-[42px_minmax(180px,1fr)_32px_minmax(180px,1fr)_80px] gap-3 px-3 text-xs font-bold uppercase tracking-wider text-slate-400 md:grid"><span>#</span><span>Set reference</span><span></span><span>PC target value</span><span></span></div><div className="mt-2 space-y-2">{activeReferencePoints.map((value, index) => <div key={`${index}-${activeReferencePoints.length}`} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[42px_minmax(180px,1fr)_32px_minmax(180px,1fr)_80px] md:items-center"><strong className="text-sm text-slate-500">{index + 1}</strong><div className="relative"><label className="sr-only" htmlFor={`reference-point-${index}`}>Reference point {index + 1} in {path.conversion.referenceUnit}</label><input id={`reference-point-${index}`} type="number" step="any" className="form-input pr-16 font-mono font-bold" value={value} disabled={Boolean(bench.locked)} onChange={event => updateReferencePoint(index, Number(event.target.value))} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{path.conversion.referenceUnit}</span></div><span className="text-center text-slate-400">→</span><div className="rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono font-bold text-slate-800">{format(DataLoader.referenceToTarget(value, path.conversion))} <span className="text-xs font-normal text-slate-400">{path.conversion.targetUnit}</span></div><button type="button" className="text-xs font-semibold text-rose-700 disabled:text-slate-300" disabled={activeReferencePoints.length <= 2 || Boolean(bench.locked)} onClick={() => removeReferencePoint(index)} aria-label={`Delete reference point ${index + 1}`}>Delete</button></div>)}</div></section>
+      <section className="card-flat"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">Reference points</p><h2 className="section-title">{activeReferencePoints.length} values from top to bottom</h2></div><div className="flex flex-wrap gap-2"><button type="button" className="btn-tertiary" disabled={Boolean(bench.locked)} onClick={addReferencePoint}>Add point</button><button type="button" className="btn-tertiary" disabled={Boolean(bench.locked)} onClick={resetReferencePointsForRange}>Load default points</button></div></div><div className="mt-5 hidden grid-cols-[42px_minmax(180px,1fr)_32px_minmax(180px,1fr)_80px] gap-3 px-3 text-xs font-bold uppercase tracking-wider text-slate-400 md:grid"><span>#</span><span>Set reference</span><span></span><span>PC target value</span><span></span></div><div className="mt-2 space-y-2">{activeReferencePoints.map((value, index) => <div key={`${index}-${activeReferencePoints.length}`} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[42px_minmax(180px,1fr)_32px_minmax(180px,1fr)_80px] md:items-center"><strong className="text-sm text-slate-500">{index + 1}</strong><div className="relative"><label className="sr-only" htmlFor={`reference-point-${index}`}>Reference point {index + 1} in {path.conversion.referenceUnit}</label><input id={`reference-point-${index}`} type="number" step="any" className="form-input pr-16 font-mono font-bold" value={value} disabled={Boolean(bench.locked)} onChange={event => updateReferencePoint(index, Number(event.target.value))} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{path.conversion.referenceUnit}</span></div><span className="text-center text-slate-400">→</span><div className="rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono font-bold text-slate-800">{format(DataLoader.referenceToTarget(value, path.conversion))} <span className="text-xs font-normal text-slate-400">{path.conversion.targetUnit}</span></div><button type="button" className="inline-flex min-h-9 items-center justify-center rounded-lg px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:text-slate-300" disabled={activeReferencePoints.length <= 2 || Boolean(bench.locked)} onClick={() => removeReferencePoint(index)} aria-label={`Delete reference point ${index + 1}`}>Delete</button></div>)}</div></section>
 
       <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <div className="card-flat"><div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Test-bench-specific influences</p><h2 className="section-title">Additional measurement uncertainty</h2></div><button type="button" className="btn-tertiary whitespace-nowrap" disabled={Boolean(bench.locked)} onClick={addAdditionalUncertainty}>Add influence</button></div><p className="mt-2 text-sm leading-6 text-slate-600">Add only influences that are not already included in the catalog device, such as lever position, load angle, deflection, or special environmental conditions.</p><div className="mt-5 space-y-3">{(path.additionalUncertainties ?? []).map(item => <div key={item.id} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1fr_150px_auto]"><Field label="Label" value={item.label} disabled={Boolean(bench.locked)} onChange={value => updateAdditionalUncertainty(item.id, { label: value })} /><NumberField label="U [% FS]" value={item.expandedPercentFs} disabled={Boolean(bench.locked)} onChange={value => updateAdditionalUncertainty(item.id, { expandedPercentFs: value })} /><button type="button" className="btn-tertiary self-end text-rose-700" disabled={Boolean(bench.locked)} onClick={() => removeAdditionalUncertainty(item.id)}>Delete</button></div>)}{!(path.additionalUncertainties ?? []).length && <div className="empty-state">No additional influences. Only the fixed device and environmental contributions are used.</div>}</div></div>
@@ -337,11 +349,19 @@ const CalibrationSetup = ({ initialBenchId, onStartCalibration }: Props) => {
       <section className="grid gap-6 lg:grid-cols-[1fr_1fr]"><div className="card-flat"><p className="eyebrow">Test plan and PC scaling</p><h2 className="section-title">{range.label}</h2><div className="mt-4 grid gap-3 sm:grid-cols-2"><NumberField label={`Range from [${range.unit}]`} value={range.min} disabled={Boolean(bench.locked)} onChange={value => updateCurrentPath({ rangeMin: value })} /><NumberField label={`Range to [${range.unit}]`} value={range.max} disabled={Boolean(bench.locked)} onChange={value => updateCurrentPath({ rangeMax: value })} /><NumberField label="Tolerance [% FS]" value={path.tolerancePercent} disabled={Boolean(bench.locked)} onChange={value => updatePath('tolerancePercent', value)} /><NumberField label={`Display resolution [${range.unit}]`} value={path.displayResolution ?? DataLoader.getDefaultDisplayResolution(range)} disabled={Boolean(bench.locked)} onChange={value => updateCurrentPath({ displayResolution: value })} /><NumberField label="Current PC gain" value={path.pcGain ?? 1} disabled={Boolean(bench.locked)} onChange={value => updateCurrentPath({ pcGain: value })} /><NumberField label={`Current PC offset [${range.unit}]`} value={path.pcOffset ?? 0} disabled={Boolean(bench.locked)} onChange={value => updateCurrentPath({ pcOffset: value })} /></div><p className="form-help">PC display = raw value × gain + offset. These fields document the values currently configured in the test bench software; the results page calculates a new recommendation.</p></div><div className="card-flat"><p className="eyebrow">Operating mode and environment</p><div className="grid gap-2 sm:grid-cols-2"><ModeButton active={runMode === 'calibration'} onClick={() => setRunMode('calibration')}>Calibration</ModeButton><ModeButton active={runMode === 'simulation'} onClick={() => setRunMode('simulation')}>Simulation / test run</ModeButton></div><div className="mt-4 grid gap-3 sm:grid-cols-3"><NumberField label="Sensor age [years]" value={sensorAgeYears} onChange={setSensorAgeYears} /><NumberField label="Ambient ΔT [K]" value={temperatureDeltaK} onChange={setTemperatureDeltaK} /><div><label className="form-label" htmlFor="distribution">Distribution</label><select id="distribution" className="form-select" value={distribution} onChange={event => setDistribution(event.target.value as UncertaintyDistribution)}><option value="normal">Normal</option><option value="rectangular">Rectangular</option></select></div></div></div></section>
     </>}
 
-    <div className="pointer-events-none sticky bottom-4 z-10 flex justify-end"><div className="pointer-events-auto rounded-xl border border-slate-700 bg-slate-950 p-3 text-right shadow-2xl"><button type="button" onClick={start} disabled={!canStart} className="btn-primary px-7 py-3">{selectedPaths.length === 1 ? 'Calibrate 1 measurement path' : `Calibrate ${selectedPaths.length} measurement paths`} →</button>{!canStart && <p className="mt-1.5 max-w-sm text-[11px] text-slate-400">{!technician.trim() ? 'Enter the responsible technician to continue.' : !governanceReady ? 'Lock the approved template or switch to simulation mode.' : 'Select at least one fully configured measurement path.'}</p>}</div></div>
+    <div className="pointer-events-none sticky bottom-4 z-10 flex justify-end"><div className="pointer-events-auto w-full rounded-xl sm:w-auto border border-slate-700 bg-slate-950 p-3 text-right shadow-2xl"><button type="button" onClick={start} disabled={!canStart} className="btn-primary w-full px-5 py-3 sm:w-auto sm:px-7">{runMode === 'simulation' ? (selectedPaths.length === 1 ? 'Simulate 1 measurement path' : `Simulate ${selectedPaths.length} measurement paths`) : (selectedPaths.length === 1 ? 'Calibrate 1 measurement path' : `Calibrate ${selectedPaths.length} measurement paths`)} →</button>{!canStart && <p className="mt-1.5 max-w-sm text-[11px] text-slate-400">{!technician.trim() ? 'Enter the responsible technician to continue.' : !governanceReady ? 'Lock the approved template or switch to simulation mode.' : 'Select at least one fully configured measurement path.'}</p>}</div></div>
   </div>;
 };
 
 const quantityLabel = (value: string) => ({ pressure: 'Pressure', temperature: 'Temperature', force: 'Force', torque: 'Torque', speed: 'Speed', flow: 'Flow', angle: 'Angle', voltage: 'Voltage', current: 'Current', electrical: 'Electrical' }[value] ?? value);
+type EquipmentSerialKind = 'sensor' | 'amplifier' | 'reference' | 'daq';
+const equipmentSerialKey = (kind: EquipmentSerialKind, path: MeasurementPath) => {
+  if (kind === 'sensor') return `sensor:${path.physicalSensorId ?? path.sensorBmk}`;
+  if (kind === 'amplifier') return `amplifier:${path.amplifierId}:${path.amplifierBmk}`;
+  if (kind === 'reference') return `reference:${path.referenceId}`;
+  return `daq:${path.dataAcquisitionId}:${path.dataAcquisitionBmk ?? 'unknown'}`;
+};
+const roundReferenceValue = (value: number) => Number(value.toFixed(9));
 const resolveRange = (range: import('../types').MeasurementRange | undefined, path?: MeasurementPath) => {
   if (!range || !path || !Number.isFinite(path.rangeMin) || !Number.isFinite(path.rangeMax) || path.rangeMax! <= path.rangeMin!) return range;
   const min = path.rangeMin!;

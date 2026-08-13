@@ -27,6 +27,14 @@ describe('calibration logic', () => {
     expect(compatible.every(item => item.ranges.some(range => range.max >= 400))).toBe(true);
   });
 
+  test('filters converted references by the unit required by the test method', () => {
+    const torqueSensor = DataLoader.getSensors().find(item => item.id === 'internal-torque-sensor-200nm')!;
+    const torqueRange = torqueSensor.ranges[0];
+    expect(DataLoader.getCompatibleReferences(torqueSensor, torqueRange, 'N').map(item => item.id)).toEqual(['internal-deadweight-force']);
+    expect(DataLoader.getCompatibleReferences(torqueSensor, torqueRange, 'kg').map(item => item.id)).toEqual(['internal-mass-set']);
+    expect(DataLoader.getCompatibleReferences(torqueSensor, torqueRange, 'V').map(item => item.id)).toEqual(['internal-voltage-calibrator']);
+  });
+
   test('classifies tolerance utilization at the 70 and 100 percent boundaries', () => {
     expect(DataLoader.getToleranceStatus(69.999)).toBe('safe');
     expect(DataLoader.getToleranceStatus(70)).toBe('warning');

@@ -88,7 +88,7 @@ function App() {
       canAccessSteps: {
         setup: true,
         calibration: false,
-        results: calibrationResults.length > 0
+        results: false
       }
     };
   });
@@ -112,12 +112,16 @@ function App() {
       canAccessSteps: {
         setup: true,
         calibration: false,
-        results: prev.calibrationResults.length > 0
+        results: false
       }
     }));
   };
 
-  const goToOverview = () => setAppState(prev => ({ ...prev, currentStep: 'overview' }));
+  const goToOverview = () => setAppState(prev => ({
+    ...prev,
+    currentStep: 'overview',
+    canAccessSteps: { setup: true, calibration: false, results: false }
+  }));
 
   const startCalibration = (setups: CalibrationSetup[]) => {
     const [setup, ...queue] = setups;
@@ -131,7 +135,7 @@ function App() {
       canAccessSteps: {
         setup: true,
         calibration: true,
-        results: prev.calibrationResults.length > 0
+        results: false
       }
     }));
   };
@@ -146,7 +150,7 @@ function App() {
         calibrationSetup: nextSetup,
         calibrationQueue: remainingQueue,
         currentStep: nextSetup ? 'calibration' : 'results',
-        canAccessSteps: { setup: true, calibration: Boolean(nextSetup), results: true }
+        canAccessSteps: { setup: true, calibration: Boolean(nextSetup), results: !nextSetup }
       };
     });
   };
@@ -168,7 +172,7 @@ function App() {
     setAppState(prev => ({ ...prev, currentStep: 'calibration' }));
   };
   const goToResults = () => {
-    if (!appState.calibrationResults.length) return;
+    if (!appState.canAccessSteps.results || !appState.currentRunResults.length) return;
     setAppState(prev => ({ ...prev, currentStep: 'results' }));
   };
 
@@ -196,7 +200,7 @@ function App() {
                   setup={appState.calibrationSetup}
                   remainingPaths={appState.calibrationQueue.length}
                   onComplete={completeCalibration}
-                  onCancel={beginSetup}
+                  onCancel={() => beginSetup(appState.calibrationSetup?.testBenchId)}
                 />
               ) : appState.currentStep === 'results' && appState.calibrationResults.length ? (
                 <CalibrationResults
