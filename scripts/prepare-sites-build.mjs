@@ -50,7 +50,7 @@ await writeFile(
 );
 await writeFile(
   new URL('_headers', clientDirectory),
-  '/static/*\n  Cache-Control: public, max-age=31536000, immutable\n',
+  '/*\n  Cache-Control: no-cache\n\n/static/*\n  Cache-Control: public, max-age=31536000, immutable\n',
 );
 await writeFile(
   new URL('.assetsignore', clientDirectory),
