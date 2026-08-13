@@ -5,7 +5,7 @@
         "P-30",
         "P-31"
     ],
-    "sensor_type": "Präzisions-Drucksensor",
+    "sensor_type": "Precision pressure sensor",
     "measurement_ranges": {
         "relative_pressure_bar": [
             0.25,

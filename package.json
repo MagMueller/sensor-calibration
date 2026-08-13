@@ -22,7 +22,9 @@
     "scripts": {
         "start": "react-scripts start",
         "build": "react-scripts build",
+        "build:sites": "react-scripts build && node scripts/prepare-sites-build.mjs",
         "test": "react-scripts test",
+        "typecheck": "tsc --noEmit",
         "eject": "react-scripts eject"
     },
     "eslintConfig": {

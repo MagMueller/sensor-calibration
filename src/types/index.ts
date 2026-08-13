@@ -1,162 +1,251 @@
-// Sensor Types
-export interface Sensor {
-  manufacturer: string;
-  datasheet: string;
-  models: string[];
-  sensor_type: string;
-  measurement_ranges: {
-    relative_pressure_bar?: number[];
-    absolute_pressure_bar?: number[];
-    vacuum_bar?: string[];
-    "+/-_pressure_bar"?: string[];
-  };
-  accuracy: {
-    standard_span_percent: number;
-    optional_span_percent?: number;
-    nonlinearity_span_percent_bfsl?: number;
-    long_term_stability_percent_span_per_year?: number;
-  };
-  temperature_compensation?: {
-    compensated_range_celsius: number[];
-    no_additional_error_range_celsius?: number[];
-    temp_error_percent_span_per_10K?: number;
-  };
-  output_signals: string[];
-  supply_voltage_vdc?: Record<string, string>;
-  measurement_rate_ms?: Record<string, number>;
-  overload_safety?: Record<string, string>;
-  environment?: {
-    protection_classes?: Record<string, string>;
-    operating_temperature_celsius?: number[];
-    medium_temperature_celsius?: number[];
-    storage_temperature_celsius?: number[];
-    vibration_g?: number;
-    shock_g?: number;
-  };
-}
-
-// Amplifier Types
-export interface Amplifier {
-  manufacturer: string;
-  datasheet: string;
-  models: string[];
-  device_type: string;
-  input_ranges: {
-    voltage_V?: number[];
-    current_mA?: number[];
-    special?: string[];
-  };
-  output_ranges: {
-    current_mA?: string[];
-    voltage_V?: string[];
-  };
-  accuracy: {
-    gain_error_percent: number;
-    temperature_coefficient_percent_per_K?: number;
-    offset_current_uA?: number;
-    offset_voltage_mV?: number;
-    ripple_mV_eff?: string;
-  };
-  bandwidth?: {
-    high_cutoff_kHz?: number;
-    low_cutoff_Hz?: number;
-    step_response_T90_us?: number;
-  };
-  load_limits?: {
-    current_output?: string;
-    voltage_output?: string;
-  };
-  supply?: {
-    voltage_range_V_AC_DC?: number[];
-    frequency_Hz_AC?: number[];
-    power_consumption_AC_VA?: number;
-    power_consumption_DC_W?: number;
-  };
-  isolation?: {
-    ports?: number;
-    test_voltage_kV_AC?: Record<string, number>;
-    working_voltage_V?: number;
-  };
-  environment?: {
-    operating_temperature_C?: number[];
-    storage_temperature_C?: number[];
-    relative_humidity_percent?: number[];
-    altitude_m?: number;
-  };
-  mechanical?: {
-    dimensions_mm?: {
-      width: number;
-      height: number;
-      depth: number;
-    };
-    weight_g?: number;
-    mounting?: string;
-  };
-}
-
-// Reference Sensor Types
-export interface ReferenceSensor {
-  manufacturer: string;
-  datasheet: string;
-  models: string[];
-  device_type: string;
-  calibration_signals?: {
-    range_steps_mV_per_V?: number[];
-    percentage_steps_percent?: number[];
-    overall_span_mV_per_V?: number[];
-  };
-  accuracy: {
-    accuracy_class?: number;
-    range_step_error_percent_fs?: number;
-    percentage_step_error_percent?: number;
-    absolute_zero_error_mV_per_V?: number;
-    non_linearity_percent_fs?: number;
-    temperature_effect_percent_per_10K_service?: number;
-    temperature_effect_percent_per_10K_nominal?: number;
-  };
-  excitation_frequency_hz?: number[];
-  bridge_equivalent?: {
-    resistance_ohms?: number;
-  };
-  supply_voltage_v?: {
-    nominal?: number;
-    maximum?: number;
-  };
-  environment?: {
-    nominal_temperature_c?: number[];
-    service_temperature_c?: number[];
-    storage_temperature_c?: number[];
-  };
-  mechanical?: {
-    weight_kg?: number;
-    dimensions_mm?: number[];
-  };
-  features?: string[];
-}
-
-// Uncertainty Distribution Types
+export type Measurand = 'pressure' | 'temperature' | 'force' | 'torque' | 'speed' | 'flow' | 'angle' | 'voltage' | 'current' | 'electrical';
+export type ToleranceStatus = 'safe' | 'warning' | 'danger';
 export type UncertaintyDistribution = 'rectangular' | 'normal';
 
-// Calibration Types
+export interface DatasheetSource {
+  title: string;
+  url: string;
+  status: 'manufacturer' | 'internal';
+  note?: string;
+}
+
+export interface MeasurementRange {
+  id: string;
+  label: string;
+  measurand: Measurand;
+  unit: 'bar' | '°C' | '%' | 'N' | 'Nm' | 'rpm' | 'kg' | 'l/min' | '°' | 'V' | 'mA' | 'Hz' | 'mV/V';
+  min: number;
+  max: number;
+  span: number;
+  kind: string;
+  preferred?: boolean;
+}
+
+export interface Sensor {
+  id: string;
+  manufacturer: string;
+  models: string[];
+  sensorType: string;
+  measurand: Measurand;
+  ranges: MeasurementRange[];
+  preferredRangeIds: string[];
+  defaultTolerancePercentFs: number;
+  defaultPointPercentages?: number[];
+  defaultPointValues?: number[];
+  accuracy: {
+    standardSpanPercent: number;
+    optionalSpanPercent?: number;
+    nonlinearitySpanPercentBfsl?: number;
+    longTermStabilityPercentSpanPerYear?: number;
+  };
+  temperatureCompensation?: {
+    compensatedRangeCelsius: number[];
+    noAdditionalErrorRangeCelsius?: number[];
+    tempErrorPercentSpanPer10K?: number;
+  };
+  outputSignals: string[];
+  source: DatasheetSource;
+}
+
+export interface Amplifier {
+  id: string;
+  manufacturer: string;
+  models: string[];
+  deviceType: string;
+  supportedMeasurands: Measurand[];
+  supportedSignals: string[];
+  bypass?: boolean;
+  accuracy: {
+    gainErrorPercent: number;
+    temperatureCoefficientPercentPerK?: number;
+  };
+  source: DatasheetSource;
+}
+
+export interface ReferenceSensor {
+  id: string;
+  manufacturer: string;
+  models: string[];
+  deviceType: string;
+  measurand: Measurand;
+  supportedTargetMeasurands?: Measurand[];
+  ranges: MeasurementRange[];
+  accuracy: {
+    accuracyPercentFs?: number;
+    absoluteAccuracy?: number;
+    nonLinearityPercentFs?: number;
+    temperatureEffectPercentPer10K?: number;
+  };
+  source: DatasheetSource;
+}
+
+export type ReferenceConversionMode = 'identity' | 'linear' | 'load-cell' | 'pulse-flow' | 'torque-lever' | 'calibrated-signal';
+
+export interface ReferenceConversion {
+  mode: ReferenceConversionMode;
+  referenceUnit: string;
+  targetUnit: string;
+  factor: number;
+  offset: number;
+  ratedForceN?: number;
+  sensitivityMvV?: number;
+  zeroReferenceValue?: number;
+  pulseVolumeCm3?: number;
+  leverLengthM?: number;
+  leverInputKind?: 'force' | 'mass';
+  gravityMs2?: number;
+  leverAngleDeg?: number;
+  direction?: 1 | -1;
+  tareTorqueNm?: number;
+  zeroTargetValue?: number;
+  nominalTargetValue?: number;
+  calibratedReferenceValue?: number;
+  description: string;
+}
+
+export interface AdditionalUncertainty {
+  id: string;
+  label: string;
+  /** User-supplied expanded uncertainty in percent of the configured full-scale span. */
+  expandedPercentFs: number;
+  note?: string;
+}
+
+export interface MeasurementPath {
+  id: string;
+  name: string;
+  physicalSensorId?: string;
+  physicalSensorName?: string;
+  measurand: Measurand;
+  sensorId: string;
+  sensorModel: string;
+  rangeId: string;
+  amplifierId: string;
+  amplifierModel: string;
+  referenceId: string;
+  referenceModel: string;
+  dataAcquisitionId: string;
+  dataAcquisitionModel: string;
+  sensorBmk: string;
+  connector: string;
+  amplifierBmk: string;
+  amplifierChannel: string;
+  dataAcquisitionBmk?: string;
+  dataAcquisitionChannel: string;
+  conversion: ReferenceConversion;
+  tolerancePercent: number;
+  /** Smallest readable step of the PC indication in the physical target unit. */
+  displayResolution?: number;
+  /** Currently configured linear scaling in the PC: displayed value = raw value * gain + offset. */
+  pcGain?: number;
+  pcOffset?: number;
+  rangeMin?: number;
+  rangeMax?: number;
+  pointValues?: number[];
+  /** Preferred values entered at the physical reference. These deliberately stay simple; engineering setpoints are derived from them. */
+  referencePointValues?: number[];
+  additionalUncertainties?: AdditionalUncertainty[];
+}
+
+export type AmendmentAction =
+  | 'created'
+  | 'measurement-path-added'
+  | 'measurement-path-removed'
+  | 'configuration-changed'
+  | 'locked'
+  | 'unlocked';
+
+export interface AmendmentRecord {
+  id: string;
+  timestamp: string;
+  author: string;
+  action: AmendmentAction;
+  note: string;
+  issue: string;
+}
+
+export interface TestBench {
+  id: string;
+  name: string;
+  revision: string;
+  description: string;
+  measurementPaths: MeasurementPath[];
+  source: 'built-in' | 'local';
+  /** Workflow lock for local template editing. This is not a server-enforced immutable lock. */
+  locked?: boolean;
+  amendmentHistory?: AmendmentRecord[];
+}
+
+export interface DataAcquisitionDevice {
+  id: string;
+  manufacturer: string;
+  models: string[];
+  deviceType: string;
+  supportedMeasurands: Measurand[];
+  supportedSignals: string[];
+  accuracyPercentFs?: number;
+  absoluteAccuracy?: number;
+  resolutionBits: number;
+  source: DatasheetSource;
+}
+
 export interface CalibrationSetup {
+  runMode: 'calibration' | 'simulation';
+  testBenchId: string;
+  testBenchName: string;
+  measurementPathId: string;
+  measurementPathName: string;
+  sensorBmk: string;
+  connector: string;
+  amplifierBmk: string;
+  amplifierChannel: string;
+  dataAcquisitionBmk: string;
+  dataAcquisitionChannel: string;
+  referenceConversion: ReferenceConversion;
   sensor: Sensor;
   amplifier: Amplifier;
   referenceSensor: ReferenceSensor;
+  dataAcquisition: DataAcquisitionDevice;
   selectedSensorModel: string;
   selectedAmplifierModel: string;
   selectedReferenceModel: string;
-  selectedPressureRange: number | string;
+  selectedDataAcquisitionModel: string;
+  sensorSerial: string;
+  amplifierSerial: string;
+  referenceSerial: string;
+  dataAcquisitionSerial: string;
+  selectedRange: MeasurementRange;
+  measurementPointValues: number[];
+  referencePointValues: number[];
   tolerancePercent: number;
-  measurementPoints: number;
+  /** Smallest readable step of the PC indication in the physical target unit. */
+  displayResolution: number;
+  /** Currently configured linear scaling in the PC: displayed value = raw value * gain + offset. */
+  pcGain: number;
+  pcOffset: number;
   uncertaintyDistribution: UncertaintyDistribution;
+  sensorAgeYears: number;
+  temperatureDeltaK: number;
+  additionalUncertainties: AdditionalUncertainty[];
+  protocolIssue: string;
+  amendmentNote: string;
+  technician: string;
+  templateLocked: boolean;
+  /** Snapshot of the template history at the time the calibration was started. */
+  templateAmendmentHistory: AmendmentRecord[];
 }
 
 export interface MeasurementPoint {
   id: number;
   sollWert: number;
+  referenceSetpoint: number;
   istWert: number;
   abweichung: number;
+  /** Deviation in percent of full-scale span, not percent of the setpoint. */
   abweichungPercent: number;
+  toleranceLimit: number;
+  toleranceUtilizationPercent: number;
+  toleranceStatus: ToleranceStatus;
   inToleranz: boolean;
   timestamp: Date;
 }
@@ -167,19 +256,65 @@ export interface CalibrationResult {
   totalUncertainty: number;
   passed: boolean;
   createdAt: Date;
+  /** Optional only for backward compatibility with records created before traceability was added. */
   technician?: string;
 }
 
-// UI State Types
+export interface UncertaintyComponent {
+  id: string;
+  label: string;
+  expandedPercentFs: number;
+  standardPercentFs: number;
+  source: string;
+}
+
+export interface UncertaintyBreakdown {
+  components: UncertaintyComponent[];
+  combinedStandardUncertainty: number;
+  expandedUncertainty: number;
+  coverageFactor: number;
+  distribution: UncertaintyDistribution;
+  distributionFactor: number;
+  excludedNotes: string[];
+}
+
+export interface TurAssessment {
+  tolerancePercentFs: number;
+  calibrationUncertaintyPercentFs: number;
+  uutToleranceAbsolute: number;
+  calibrationUncertaintyAbsolute: number;
+  ratio: number;
+  requiredRatio: number;
+  passes: boolean;
+  unit: string;
+}
+
+export interface GainOffsetResult {
+  gain: number;
+  offset: number;
+  rSquared: number;
+  rmse: number;
+  correctedMeasurements: Array<{
+    sollWert: number;
+    istWert: number;
+    correctedValue: number;
+    originalDeviation: number;
+    correctedDeviation: number;
+    originalDeviationPercent: number;
+    correctedDeviationPercent: number;
+  }>;
+}
+
 export interface AppState {
-  currentStep: 'dashboard' | 'setup' | 'calibration' | 'results';
+  currentStep: 'overview' | 'setup' | 'calibration' | 'results';
+  setupBenchId?: string;
   calibrationSetup?: CalibrationSetup;
-  currentMeasurement: number;
-  measurements: MeasurementPoint[];
+  calibrationQueue: CalibrationSetup[];
+  currentRunResults: CalibrationResult[];
   calibrationResults: CalibrationResult[];
   canAccessSteps: {
     setup: boolean;
     calibration: boolean;
     results: boolean;
   };
-} 
+}

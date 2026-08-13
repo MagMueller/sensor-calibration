@@ -1,312 +1,126 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { DataLoader } from '../data/dataLoader';
-import { CalibrationResult, CalibrationSetup, MeasurementPoint } from '../types';
+import { CalibrationResult, CalibrationSetup, MeasurementPoint, ToleranceStatus } from '../types';
 
 interface CalibrationProcessProps {
   setup: CalibrationSetup;
-  measurements: MeasurementPoint[];
-  currentMeasurement: number;
-  onAddMeasurement: (measurement: MeasurementPoint) => void;
+  remainingPaths?: number;
   onComplete: (result: CalibrationResult) => void;
   onCancel: () => void;
 }
 
-const CalibrationProcess = ({
-  setup,
-  measurements,
-  currentMeasurement,
-  onAddMeasurement,
-  onComplete,
-  onCancel
-}: CalibrationProcessProps) => {
-  const [sollWert, setSollWert] = useState(0);
-  const [istWert, setIstWert] = useState('');
+type DraftRow = { raw: string; source: 'manual' | 'simulation' | 'empty' };
 
-  useEffect(() => {
-    // Generate measurement points based on selected range
-    const points = DataLoader.generateMeasurementPoints(
-      setup.selectedPressureRange,
-      setup.measurementPoints
-    );
-    
-    if (points.length > 0 && currentMeasurement < points.length) {
-      setSollWert(points[currentMeasurement]);
-    }
-  }, [setup, currentMeasurement]);
+const CalibrationProcess = ({ setup, remainingPaths = 0, onComplete, onCancel }: CalibrationProcessProps) => {
+  const [rows, setRows] = useState<DraftRow[]>(() => setup.measurementPointValues.map(() => ({ raw: '', source: 'empty' })));
+  const uncertainty = useMemo(() => DataLoader.calculateDetailedUncertainty(setup), [setup]);
+  const tur = useMemo(() => DataLoader.calculateTur(setup, uncertainty.expandedUncertainty), [setup, uncertainty.expandedUncertainty]);
+  const unit = setup.selectedRange.unit;
+  const referenceUnit = setup.referenceConversion.referenceUnit;
+  const referenceSetpoints = setup.referencePointValues;
 
-  const calculateDeviation = (soll: number, ist: number) => {
-    const absoluteDeviation = ist - soll;
-    const percentageDeviation = soll !== 0 ? (absoluteDeviation / soll) * 100 : 0;
-    return { absoluteDeviation, percentageDeviation };
+  const evaluated = rows.map((row, index) => {
+    const value = DataLoader.parseLocalizedNumber(row.raw);
+    if (value === undefined) return undefined;
+    return DataLoader.evaluateMeasurement(setup.measurementPointValues[index], value, setup.selectedRange, setup.tolerancePercent);
+  });
+
+  const updateRow = (index: number, raw: string, source: DraftRow['source'] = 'manual') => {
+    setRows(current => current.map((row, rowIndex) => rowIndex === index ? { raw, source: raw.trim() ? source : 'empty' } : row));
   };
+  const simulateRow = (index: number) => updateRow(index, formatEditable(DataLoader.simulateRandomValue(setup.measurementPointValues[index], setup.selectedRange, index, setup.tolerancePercent)), 'simulation');
+  const simulateAll = () => setRows(setup.measurementPointValues.map((setpoint, index) => ({ raw: formatEditable(DataLoader.simulateRandomValue(setpoint, setup.selectedRange, index, setup.tolerancePercent)), source: 'simulation' })));
+  const clearAll = () => setRows(setup.measurementPointValues.map(() => ({ raw: '', source: 'empty' })));
 
-  const isWithinTolerance = (soll: number, ist: number) => {
-    const { percentageDeviation } = calculateDeviation(soll, ist);
-    return Math.abs(percentageDeviation) <= setup.tolerancePercent;
-  };
-
-  const handleAddMeasurement = () => {
-    const istValue = parseFloat(istWert);
-    if (isNaN(istValue)) return;
-
-    const { absoluteDeviation, percentageDeviation } = calculateDeviation(sollWert, istValue);
-    const inTolerance = isWithinTolerance(sollWert, istValue);
-
-    const measurement: MeasurementPoint = {
-      id: currentMeasurement + 1,
-      sollWert,
-      istWert: istValue,
-      abweichung: absoluteDeviation,
-      abweichungPercent: percentageDeviation,
-      inToleranz: inTolerance,
+  const completed = evaluated.filter(Boolean).length;
+  const containsSimulatedReadings = rows.some(row => row.source === 'simulation');
+  const effectiveRunMode: CalibrationSetup['runMode'] = setup.runMode === 'simulation' || containsSimulatedReadings ? 'simulation' : 'calibration';
+  const warningCount = evaluated.filter(item => item?.toleranceStatus === 'warning').length;
+  const dangerCount = evaluated.filter(item => item?.toleranceStatus === 'danger').length;
+  const allValid = completed === rows.length;
+  const maxUtilization = evaluated.reduce((max, item) => Math.max(max, item?.toleranceUtilizationPercent ?? 0), 0);
+  const measurements = evaluated.flatMap((evaluation, index): MeasurementPoint[] => {
+    const value = DataLoader.parseLocalizedNumber(rows[index].raw);
+    if (!evaluation || value === undefined) return [];
+    return [{
+      id: index + 1,
+      sollWert: setup.measurementPointValues[index],
+      referenceSetpoint: referenceSetpoints[index],
+      istWert: value,
+      abweichung: evaluation.absoluteDeviation,
+      abweichungPercent: evaluation.percentageDeviation,
+      toleranceLimit: evaluation.toleranceLimit,
+      toleranceUtilizationPercent: evaluation.toleranceUtilizationPercent,
+      toleranceStatus: evaluation.toleranceStatus,
+      inToleranz: evaluation.inTolerance,
       timestamp: new Date()
-    };
+    }];
+  });
+  const passed = allValid && tur.passes && measurements.every(point => DataLoader.passesGuardband(point.abweichungPercent, uncertainty.expandedUncertainty, setup.tolerancePercent));
 
-    onAddMeasurement(measurement);
-    setIstWert('');
-
-    // Check if calibration is complete
-    if (currentMeasurement + 1 >= setup.measurementPoints) {
-      const allMeasurements = [...measurements, measurement];
-      const totalUncertainty = DataLoader.calculateTotalUncertainty(
-        setup.sensor,
-        setup.amplifier,
-        setup.referenceSensor
-      );
-      const passed = allMeasurements.every(m => m.inToleranz);
-
-      const result: CalibrationResult = {
-        setup,
-        measurements: allMeasurements,
-        totalUncertainty,
-        passed,
-        createdAt: new Date()
-      };
-
-      onComplete(result);
+  const finish = () => {
+    if (!allValid) {
+      document.getElementById(`measurement-${evaluated.findIndex(item => !item)}`)?.focus();
+      return;
     }
+    const recordedSetup = effectiveRunMode === setup.runMode ? setup : { ...setup, runMode: effectiveRunMode };
+    onComplete({ setup: recordedSetup, measurements, totalUncertainty: uncertainty.expandedUncertainty, passed, createdAt: new Date(), technician: setup.technician });
   };
 
-  const getProgressPercentage = () => {
-    return ((currentMeasurement) / setup.measurementPoints) * 100;
-  };
+  return <div className="space-y-6">
+    <header className="workspace-hero"><div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div><p className="eyebrow">Step 2 · Measure · Issue {setup.protocolIssue}</p><h1 className="page-title">{setup.measurementPathName}</h1><p className="page-subtitle">{setup.testBenchName} · {setup.sensorBmk} · Connector {setup.connector}</p>{remainingPaths > 0 && <p className="mt-3 text-xs font-bold text-blue-300">{remainingPaths} additional measurement path(s) will follow automatically.</p>}</div><div className="flex flex-wrap items-center gap-2 lg:justify-end"><span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300"><strong className="block text-white">{setup.technician}</strong>Technician</span><span className={effectiveRunMode === 'simulation' ? 'status-warning' : 'status-success'}>{effectiveRunMode === 'simulation' ? 'Simulation / not official' : 'Calibration run'}</span></div></div></header>
 
-  const getStatusIcon = (inTolerance: boolean) => {
-    return inTolerance ? '✅' : '❌';
-  };
+    <section className="instruction-panel"><div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center"><div><p className="eyebrow">Reference instruction</p><h2 className="text-base font-extrabold text-slate-950">Set {referenceUnit} at the reference → verify {unit} on the PC</h2><p className="mt-1 text-sm leading-5 text-slate-600">{setup.referenceConversion.description}</p></div><div className="rounded-lg border border-blue-200 bg-white/80 px-4 py-3 font-mono text-xs text-blue-950"><span className="block font-sans text-[9px] font-black uppercase tracking-wider text-blue-500">PC scaling</span>Gain {setup.pcGain.toFixed(8)} · Offset {setup.pcOffset.toFixed(8)} {unit}</div></div>{conversionExample(setup)}</section>
 
-  const getStatusColor = (inTolerance: boolean) => {
-    return inTolerance ? 'text-success-600' : 'text-danger-600';
-  };
+    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <LiveMetric label="Captured" value={`${completed}/${rows.length}`} note="measurement points" />
+      <LiveMetric label="Max. utilization" value={`${maxUtilization.toFixed(1)}%`} note="of tolerance" status={DataLoader.getToleranceStatus(maxUtilization)} />
+      <LiveMetric label="Adjustment required" value={String(warningCount)} note="70–100 %" status="warning" />
+      <LiveMetric label="Out of tolerance" value={String(dangerCount)} note="> 100 %" status={dangerCount ? 'danger' : 'safe'} />
+    </section>
 
-  const formatNumber = (num: number, decimals: number = 4) => {
-    return num.toFixed(decimals);
-  };
+    <section className="card-flat">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="eyebrow">Complete test plan</p><h2 className="section-title">Capture all {rows.length} target values directly</h2><p className="mt-2 text-sm text-slate-500">Decimal points and commas are accepted. Every change updates the deviation and status immediately.</p>{containsSimulatedReadings && <p className="mt-2 text-sm font-semibold text-amber-700">Generated readings are present. This run will be saved as a non-official simulation.</p>}</div><div className="flex flex-wrap gap-2"><button type="button" onClick={simulateAll} className="btn-primary">Generate new random values</button><button type="button" onClick={clearAll} className="btn-tertiary">Clear entries</button></div></div>
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Kalibrierung durchführen
-        </h1>
-        <p className="text-lg text-gray-600">
-          Messpunkt {currentMeasurement + 1} von {setup.measurementPoints}
-        </p>
-      </div>
+      <div className="hidden grid-cols-[40px_120px_120px_minmax(160px,1fr)_100px_120px_120px] gap-3 border-b border-slate-200 px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-500 md:grid"><span>#</span><span>Reference input</span><span>PC target</span><span>PC reading</span><span>Action</span><span>Deviation</span><span>Utilization</span></div>
+      <div className="divide-y divide-slate-100">{rows.map((row, index) => {
+        const result = evaluated[index];
+        return <div key={index} className={`measurement-row grid gap-3 px-3 py-4 md:grid-cols-[40px_120px_120px_minmax(160px,1fr)_100px_120px_120px] md:items-center ${statusBackground(result?.toleranceStatus)}`}>
+          <div className="flex items-center justify-between md:block"><span className="text-xs font-bold uppercase text-slate-400 md:hidden">Measurement point</span><strong className="text-slate-500">{index + 1}</strong></div>
+          <div><span className="text-xs font-bold uppercase text-blue-500 md:hidden">Set at reference</span><div className="font-mono font-bold text-blue-700">{formatNumber(referenceSetpoints[index])} {referenceUnit}</div></div>
+          <div><span className="text-xs font-bold uppercase text-slate-400 md:hidden">PC target</span><div className="font-mono font-bold">{formatNumber(setup.measurementPointValues[index])} {unit}</div></div>
+          <div><label className="sr-only" htmlFor={`measurement-${index}`}>Reading for measurement point {index + 1}, target {formatNumber(setup.measurementPointValues[index])} {unit}</label><div className="relative"><input id={`measurement-${index}`} type="text" inputMode="decimal" className="form-input pr-16 font-mono font-bold" value={row.raw} onChange={event => updateRow(index, event.target.value)} aria-invalid={row.raw.trim() !== '' && !result} placeholder={formatNumber(setup.measurementPointValues[index])} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{unit}</span></div>{row.source === 'simulation' && <span className="mt-1 block text-[10px] font-bold uppercase tracking-wider text-blue-600">Simulation</span>}{row.raw.trim() !== '' && !result && <span className="form-error">Invalid number</span>}</div>
+          <button type="button" onClick={() => simulateRow(index)} className="btn-tertiary px-3 py-2 text-xs">Regenerate</button>
+          <div><span className="text-xs font-bold uppercase text-slate-400 md:hidden">Deviation</span><div className="font-mono text-sm font-bold">{result ? `${signed(result.percentageDeviation, 4)}% FS` : '—'}</div></div>
+          <div>{result ? <UtilizationBadge status={result.toleranceStatus} utilization={result.toleranceUtilizationPercent} /> : <span className="status-neutral">Pending</span>}</div>
+        </div>;
+      })}</div>
+    </section>
 
-      {/* Progress Bar */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Fortschritt</span>
-          <span className="text-sm font-medium text-gray-700">
-            {Math.round(getProgressPercentage())}%
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div
-            className="bg-primary-600 h-3 rounded-full transition-all duration-300"
-            style={{ width: `${getProgressPercentage()}%` }}
-          ></div>
-        </div>
-      </div>
+    <section className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+      <div className="card-flat"><p className="eyebrow">Live deviation profile</p><h2 className="section-title">Utilization of the permitted tolerance</h2><div className="mt-6 space-y-3">{evaluated.map((item, index) => <div key={index} className="grid grid-cols-[34px_1fr_70px] items-center gap-3"><span className="text-xs font-bold text-slate-400">{index + 1}</span><div className="relative h-3 overflow-hidden rounded-full bg-slate-100"><div className="absolute inset-y-0 left-0 w-[70%] bg-emerald-100" /><div className="absolute inset-y-0 left-[70%] w-[30%] bg-amber-100" /><div className={`absolute inset-y-0 left-0 rounded-full ${statusBar(item?.toleranceStatus)}`} style={{ width: `${Math.min(100, item?.toleranceUtilizationPercent ?? 0)}%` }} /></div><span className="text-right font-mono text-xs font-bold">{item ? `${item.toleranceUtilizationPercent.toFixed(1)}%` : '—'}</span></div>)}</div><div className="mt-5 flex flex-wrap gap-2"><span className="status-success">&lt; 70% acceptable</span><span className="status-warning">70–100% adjustment required</span><span className="status-danger">&gt; 100% out of tolerance</span></div></div>
+      <div className="card-flat"><p className="eyebrow">Decision rule</p><h2 className="section-title">Guardband and TUR</h2><div className={`mt-5 rounded-xl p-4 ${tur.passes ? 'bg-emerald-50' : 'bg-rose-50'}`}><div className="flex justify-between gap-3 text-sm"><span>UUT requirement</span><strong>±{formatNumber(tur.uutToleranceAbsolute)} {unit}</strong></div><div className="mt-3 flex justify-between gap-3 text-sm"><span>Calibration uncertainty U (k={uncertainty.coverageFactor})</span><strong>±{formatNumber(tur.calibrationUncertaintyAbsolute)} {unit}</strong></div><div className="mt-3 flex justify-between gap-3 border-t border-slate-300 pt-3 text-sm"><span>TUR, required &gt; {tur.requiredRatio}</span><strong className={tur.passes ? 'text-emerald-700' : 'text-rose-700'}>{Number.isFinite(tur.ratio) ? tur.ratio.toFixed(4) : '∞'} : 1</strong></div></div><p className="mt-4 text-sm leading-6 text-slate-600">A run passes only when <strong>TUR &gt; 3</strong> and every point satisfies <strong>|error| + U ≤ tolerance</strong>. The sensor/UUT requirement and calibration uncertainty are compared in {unit}.</p>{setup.amendmentNote && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm"><strong>Amendment:</strong> {setup.amendmentNote}</div>}</div>
+    </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Current Measurement */}
-        <div className="space-y-6">
-          {/* Setup Summary */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-              <span className="text-2xl mr-2">⚙️</span>
-              Konfiguration
-            </h3>
-            <div className="space-y-2 text-sm">
-              <div><strong>Sensor:</strong> {setup.sensor.manufacturer} {setup.selectedSensorModel}</div>
-              <div><strong>Verstärker:</strong> {setup.amplifier.manufacturer} {setup.selectedAmplifierModel}</div>
-              <div><strong>Referenz:</strong> {setup.referenceSensor.manufacturer} {setup.selectedReferenceModel}</div>
-              <div><strong>Messbereich:</strong> {setup.selectedPressureRange} bar</div>
-              <div><strong>Toleranz:</strong> ±{setup.tolerancePercent}%</div>
-            </div>
-          </div>
-
-          {/* Current Measurement Input */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-              <span className="text-2xl mr-2">📊</span>
-              Messpunkt {currentMeasurement + 1}
-            </h3>
-            
-            <div className="space-y-4">
-              <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-                <div className="text-center">
-                  <div className="text-sm text-gray-600 mb-1">Sollwert</div>
-                  <div className="text-3xl font-bold text-primary-600">
-                    {formatNumber(sollWert, 2)} bar
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Istwert eingeben</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="number"
-                    className="form-input flex-1"
-                    value={istWert}
-                    onChange={(e) => setIstWert(e.target.value)}
-                    step="0.0001"
-                    placeholder="Gemessenen Wert eingeben"
-                    autoFocus
-                  />
-                  <span className="flex items-center text-gray-500">bar</span>
-                </div>
-              </div>
-
-              <button
-                onClick={handleAddMeasurement}
-                disabled={!istWert || isNaN(parseFloat(istWert))}
-                className={`w-full py-3 ${
-                  istWert && !isNaN(parseFloat(istWert))
-                    ? 'btn-primary'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                Messung hinzufügen
-              </button>
-
-              {istWert && !isNaN(parseFloat(istWert)) && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 mb-2">Vorschau</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span>Sollwert:</span>
-                      <span>{formatNumber(sollWert, 4)} bar</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Istwert:</span>
-                      <span>{formatNumber(parseFloat(istWert), 4)} bar</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Abweichung:</span>
-                      <span>{formatNumber(parseFloat(istWert) - sollWert, 4)} bar</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Abweichung %:</span>
-                      <span className={getStatusColor(isWithinTolerance(sollWert, parseFloat(istWert)))}>
-                        {formatNumber(calculateDeviation(sollWert, parseFloat(istWert)).percentageDeviation, 2)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center font-medium">
-                      <span>Status:</span>
-                      <span className={getStatusColor(isWithinTolerance(sollWert, parseFloat(istWert)))}>
-                        {getStatusIcon(isWithinTolerance(sollWert, parseFloat(istWert)))}
-                        {isWithinTolerance(sollWert, parseFloat(istWert)) ? ' In Toleranz' : ' Außerhalb Toleranz'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Measurements Table */}
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <span className="text-2xl mr-2">📋</span>
-            Messergebnisse
-          </h3>
-          
-          {measurements.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <span className="text-4xl mb-2 block">📊</span>
-              <p>Noch keine Messungen durchgeführt</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Soll [bar]</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ist [bar]</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Abw. [%]</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {measurements.map((measurement, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 font-medium">{measurement.id}</td>
-                      <td className="px-3 py-2">{formatNumber(measurement.sollWert, 2)}</td>
-                      <td className="px-3 py-2">{formatNumber(measurement.istWert, 4)}</td>
-                      <td className={`px-3 py-2 font-medium ${getStatusColor(measurement.inToleranz)}`}>
-                        {formatNumber(measurement.abweichungPercent, 2)}%
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span className={getStatusColor(measurement.inToleranz)}>
-                          {getStatusIcon(measurement.inToleranz)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {measurements.length > 0 && (
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-success-600">
-                    {measurements.filter(m => m.inToleranz).length}
-                  </div>
-                  <div className="text-gray-600">In Toleranz</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-danger-600">
-                    {measurements.filter(m => !m.inToleranz).length}
-                  </div>
-                  <div className="text-gray-600">Außerhalb</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-center space-x-4">
-        <button
-          onClick={onCancel}
-          className="btn-secondary px-8 py-3"
-        >
-          ← Abbrechen
-        </button>
-      </div>
-    </div>
-  );
+    <div className="sticky bottom-4 z-10 flex flex-col-reverse justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur sm:flex-row sm:items-center"><button type="button" onClick={onCancel} className="btn-tertiary">Back to setup</button><div className="text-right"><button type="button" onClick={finish} disabled={!allValid} className="btn-primary px-7 py-3">Complete calibration →</button>{!allValid && <p className="mt-1 text-xs text-slate-500">{rows.length - completed} reading(s) still missing.</p>}{allValid && <p className={`mt-1 text-xs font-semibold ${passed ? 'text-emerald-700' : 'text-rose-700'}`}>Live result: {passed ? 'passed' : 'failed'}</p>}</div></div>
+  </div>;
 };
 
-export default CalibrationProcess; 
+const formatNumber = (value: number) => new Intl.NumberFormat('en-GB', { maximumFractionDigits: 6 }).format(value);
+const formatEditable = (value: number) => value.toFixed(6);
+const signed = (value: number, decimals: number) => `${value >= 0 ? '+' : ''}${value.toFixed(decimals)}`;
+const statusBackground = (status?: ToleranceStatus) => status === 'danger' ? 'bg-rose-50/70' : status === 'warning' ? 'bg-amber-50/70' : status === 'safe' ? 'bg-emerald-50/40' : '';
+const statusBar = (status?: ToleranceStatus) => status === 'danger' ? 'bg-rose-500' : status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500';
+const LiveMetric = ({ label, value, note, status }: { label: string; value: string; note: string; status?: ToleranceStatus }) => <div className={`metric-card text-left ${status === 'danger' ? 'border-rose-200 bg-rose-50' : status === 'warning' ? 'border-amber-200 bg-amber-50' : status === 'safe' ? 'border-emerald-200 bg-emerald-50' : ''}`}><span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span><strong className="mt-1">{value}</strong><span>{note}</span></div>;
+const UtilizationBadge = ({ status, utilization }: { status: ToleranceStatus; utilization: number }) => <span className={status === 'danger' ? 'status-danger' : status === 'warning' ? 'status-warning' : 'status-success'}>{utilization.toFixed(1)}% · {status === 'danger' ? 'Out of tolerance' : status === 'warning' ? 'Adjustment required' : 'Acceptable'}</span>;
+const conversionExample = (setup: CalibrationSetup) => {
+  const index = Math.min(Math.floor(setup.referencePointValues.length / 2), setup.referencePointValues.length - 1);
+  if (index < 0) return null;
+  const reference = setup.referencePointValues[index];
+  const target = setup.measurementPointValues[index];
+  if (setup.referenceConversion.mode === 'torque-lever') return <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 font-mono text-sm text-blue-900">Example: {formatNumber(reference)} {setup.referenceConversion.referenceUnit} × {formatNumber(setup.referenceConversion.leverLengthM ?? 0)} m → target {formatNumber(target)} Nm</p>;
+  if (setup.referenceConversion.mode === 'calibrated-signal') return <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 font-mono text-sm text-blue-900">Example: set {formatNumber(reference)} {setup.referenceConversion.referenceUnit} → target {formatNumber(target)} {setup.referenceConversion.targetUnit}</p>;
+  return null;
+};
+
+export default CalibrationProcess;

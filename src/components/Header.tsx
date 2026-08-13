@@ -1,189 +1,68 @@
-// import { Activity, BarChart3, Home, Settings } from 'lucide-react';
-
 interface HeaderProps {
-  currentStep: 'dashboard' | 'setup' | 'calibration' | 'results';
-  canAccessSteps: {
-    setup: boolean;
-    calibration: boolean;
-    results: boolean;
-  };
-  onNavigateToDashboard: () => void;
+  currentStep: 'overview' | 'setup' | 'calibration' | 'results';
+  canAccessSteps: { setup: boolean; calibration: boolean; results: boolean };
+  onNavigateToOverview: () => void;
   onNavigateToSetup: () => void;
   onNavigateToCalibration: () => void;
   onNavigateToResults: () => void;
 }
 
-const Header = ({ 
-  currentStep, 
-  canAccessSteps, 
-  onNavigateToDashboard, 
-  onNavigateToSetup, 
-  onNavigateToCalibration, 
-  onNavigateToResults 
-}: HeaderProps) => {
-  const getStepIcon = () => {
-    switch (currentStep) {
-      case 'dashboard':
-        return <span className="w-5 h-5 text-lg">🏠</span>;
-      case 'setup':
-        return <span className="w-5 h-5 text-lg">⚙️</span>;
-      case 'calibration':
-        return <span className="w-5 h-5 text-lg">📊</span>;
-      case 'results':
-        return <span className="w-5 h-5 text-lg">📈</span>;
-      default:
-        return <span className="w-5 h-5 text-lg">🏠</span>;
-    }
-  };
+const steps = [
+  { id: 'setup', short: 'Setup', label: 'Measurement chain' },
+  { id: 'calibration', short: 'Measure', label: 'Measurement points' },
+  { id: 'results', short: 'Results', label: 'Evaluation' }
+] as const;
 
-  const getStepTitle = () => {
-    switch (currentStep) {
-      case 'dashboard':
-        return 'Dashboard';
-      case 'setup':
-        return 'Kalibrierung einrichten';
-      case 'calibration':
-        return 'Kalibrierung durchführen';
-      case 'results':
-        return 'Ergebnisse';
-      default:
-        return 'Dashboard';
-    }
+const Header = ({ currentStep, canAccessSteps, onNavigateToOverview, onNavigateToSetup, onNavigateToCalibration, onNavigateToResults }: HeaderProps) => {
+  const actions = {
+    setup: onNavigateToSetup,
+    calibration: onNavigateToCalibration,
+    results: onNavigateToResults
   };
+  const enabled = {
+    setup: canAccessSteps.setup,
+    calibration: canAccessSteps.calibration,
+    results: canAccessSteps.results
+  };
+  const currentIndex = steps.findIndex(step => step.id === currentStep);
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200">
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={onNavigateToDashboard}
-              className="flex items-center space-x-2 text-primary-600 hover:text-primary-700 transition-colors"
-            >
-              <span className="w-8 h-8 text-2xl">🎯</span>
-              <span className="text-xl font-bold">Kalibrierungs-App</span>
-            </button>
-            
-            <div className="h-6 w-px bg-gray-300" />
-            
-            <div className="flex items-center space-x-2 text-gray-600">
-              {getStepIcon()}
-              <span className="font-medium">{getStepTitle()}</span>
-            </div>
-          </div>
+    <header className="app-header">
+      <div className="mx-auto max-w-[1440px] px-4 py-3 sm:px-6">
+        <div className="flex items-center justify-between gap-4">
+          <button onClick={onNavigateToOverview} className="flex shrink-0 items-center gap-3 text-left" aria-label="Go to test bench overview">
+            <span className="app-brand-mark"><span className="sr-only">Calibration Studio</span></span>
+            <span className="hidden sm:block">
+              <span className="block text-sm font-extrabold tracking-tight text-white sm:text-base">Calibration Studio</span>
+              <span className="hidden text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 sm:block">Measurement control</span>
+            </span>
+          </button>
 
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm text-gray-600">System bereit</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Interactive Navigation */}
-        <div className="mt-4">
-          <div className="flex items-center space-x-2">
-            {/* Dashboard */}
-            <button
-              onClick={onNavigateToDashboard}
-              className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                currentStep === 'dashboard' 
-                  ? 'bg-primary-600 shadow-lg' 
-                  : 'bg-gray-300 hover:bg-gray-400'
-              }`}
-              title="Dashboard"
-            />
-            <div className="w-8 h-px bg-gray-300" />
-            
-            {/* Setup */}
-            <button
-              onClick={onNavigateToSetup}
-              disabled={!canAccessSteps.setup}
-              className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                currentStep === 'setup' 
-                  ? 'bg-primary-600 shadow-lg' 
-                  : canAccessSteps.setup 
-                    ? 'bg-gray-300 hover:bg-gray-400 cursor-pointer' 
-                    : 'bg-gray-200 cursor-not-allowed'
-              }`}
-              title="Kalibrierung einrichten"
-            />
-            <div className="w-8 h-px bg-gray-300" />
-            
-            {/* Calibration */}
-            <button
-              onClick={onNavigateToCalibration}
-              disabled={!canAccessSteps.calibration}
-              className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                currentStep === 'calibration' 
-                  ? 'bg-primary-600 shadow-lg' 
-                  : canAccessSteps.calibration 
-                    ? 'bg-gray-300 hover:bg-gray-400 cursor-pointer' 
-                    : 'bg-gray-200 cursor-not-allowed'
-              }`}
-              title="Kalibrierung durchführen"
-            />
-            <div className="w-8 h-px bg-gray-300" />
-            
-            {/* Results */}
-            <button
-              onClick={onNavigateToResults}
-              disabled={!canAccessSteps.results}
-              className={`w-3 h-3 rounded-full transition-all duration-200 ${
-                currentStep === 'results' 
-                  ? 'bg-primary-600 shadow-lg' 
-                  : canAccessSteps.results 
-                    ? 'bg-gray-300 hover:bg-gray-400 cursor-pointer' 
-                    : 'bg-gray-200 cursor-not-allowed'
-              }`}
-              title="Ergebnisse anzeigen"
-            />
-          </div>
-          <div className="flex items-center justify-between mt-3">
-            <button
-              onClick={onNavigateToDashboard}
-              className="text-xs text-gray-600 hover:text-primary-600 transition-colors"
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={onNavigateToSetup}
-              disabled={!canAccessSteps.setup}
-              className={`text-xs transition-colors ${
-                canAccessSteps.setup 
-                  ? 'text-gray-600 hover:text-primary-600' 
-                  : 'text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              Setup
-            </button>
-            <button
-              onClick={onNavigateToCalibration}
-              disabled={!canAccessSteps.calibration}
-              className={`text-xs transition-colors ${
-                canAccessSteps.calibration 
-                  ? 'text-gray-600 hover:text-primary-600' 
-                  : 'text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              Messung
-            </button>
-            <button
-              onClick={onNavigateToResults}
-              disabled={!canAccessSteps.results}
-              className={`text-xs transition-colors ${
-                canAccessSteps.results 
-                  ? 'text-gray-600 hover:text-primary-600' 
-                  : 'text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              Ergebnis
-            </button>
-          </div>
+          <nav aria-label="Calibration steps" className="app-nav">
+            <button type="button" onClick={onNavigateToOverview} aria-current={currentStep === 'overview' ? 'page' : undefined} className={`app-nav-button ${currentStep === 'overview' ? 'app-nav-button-active' : ''}`}><span className="app-nav-number">⌂</span><span className="hidden sm:block">Benches</span></button>
+            {steps.map((step, index) => {
+              const isEnabled = enabled[step.id];
+              const isActive = currentStep === step.id;
+              const isComplete = index < currentIndex;
+              return (
+                  <button key={step.id}
+                    onClick={actions[step.id]}
+                    disabled={!isEnabled}
+                    aria-current={isActive ? 'step' : undefined}
+                    className={`app-nav-button ${isActive ? 'app-nav-button-active' : ''} ${isComplete ? 'app-nav-button-complete' : ''}`}
+                  >
+                    <span className="app-nav-number">
+                      {isComplete ? '✓' : index + 1}
+                    </span>
+                    <span className="hidden sm:block"><span className="block">{step.short}</span><span className="hidden text-[9px] font-medium text-slate-500 lg:block">{step.label}</span></span>
+                  </button>
+              );
+            })}
+          </nav>
         </div>
       </div>
     </header>
   );
 };
 
-export default Header; 
+export default Header;

@@ -1,11 +1,11 @@
 {
   "manufacturer": "Knick",
-  "datasheet": "VariTrans P 27000 (Universal-Trennverstärker)",
+  "datasheet": "VariTrans P 27000 (Universal isolation amplifier)",
   "models": [
     "P 27000 H1",
     "P 27000 F1"
   ],
-  "device_type": "Signal-Isolator / Verstärker",
+  "device_type": "Signal isolator / amplifier",
   "input_ranges": {
     "voltage_V": [
       0.02,

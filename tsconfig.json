@@ -4,7 +4,6 @@
         "lib": [
             "dom",
             "dom.iterable",
-            "dom.experimental",
             "es6"
         ],
         "allowJs": true,
